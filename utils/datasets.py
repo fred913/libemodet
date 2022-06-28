@@ -352,7 +352,10 @@ class ScreenDataset:  # multiple IP or RTSP cameras
     def update(self):
         # Read next stream frame in a daemon thread
         while self.running:
-            self.img = cv2.cvtColor(np.array(ImageGrab.grab()),cv2.COLOR_RGB2BGR)
+            try:
+                self.img = cv2.cvtColor(np.array(ImageGrab.grab()),cv2.COLOR_RGB2BGR)
+            except OSError:
+                pass
 
     def __iter__(self):
         self.count = -1
