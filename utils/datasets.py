@@ -16,7 +16,7 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image, ExifTags
+from PIL import Image, ExifTags, ImageGrab
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
@@ -335,6 +335,51 @@ class LoadStreams:  # multiple IP or RTSP cameras
     def __len__(self):
         return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
+
+class ScreenDataset:  # multiple IP or RTSP cameras
+    def __init__(self, title="Zoom Meetings", img_size=640, stride=32):
+        self.mode = 'stream'
+        self.img_size = img_size
+        self.stride = stride
+        self.img = cv2.cvtColor(np.array(ImageGrab.grab()),cv2.COLOR_RGB2BGR)
+        self.running = True
+        self.name = title
+        
+        thread = Thread(target=self.update, daemon=True)
+        thread.start()
+
+
+    def update(self):
+        # Read next stream frame in a daemon thread
+        while self.running:
+            self.img = cv2.cvtColor(np.array(ImageGrab.grab()),cv2.COLOR_RGB2BGR)
+
+    def __iter__(self):
+        self.count = -1
+        return self
+
+    def __next__(self):
+        self.count += 1
+        if cv2.waitKey(1) == ord('q'):  # q to quit
+            self.running = False
+            cv2.destroyAllWindows()
+            raise StopIteration
+
+        # Letterbox
+        img0 = np.expand_dims(self.img,0)
+        img = [letterbox(self.img, self.img_size, auto=True, stride=self.stride)[0]]
+
+        # Stack
+        img = np.stack(img, 0)
+
+        # Convert
+        img = img[:, :, :, ::-1].transpose(0, 3, 1, 2)  # BGR to RGB, to bsx3x416x416
+        img = np.ascontiguousarray(img)
+
+        return [self.name], img, img0, None
+
+    def __len__(self):
+        return 0  # 1E12 frames = 32 streams at 30 FPS for 30 years
 
 def img2label_paths(img_paths):
     # Define label paths as a function of image paths
@@ -1060,3 +1105,4 @@ def autosplit(path='../coco128', weights=(0.9, 0.1, 0.0), annotated_only=False):
         if not annotated_only or Path(img2label_paths([str(img)])[0]).exists():  # check label
             with open(path / txt[i], 'a') as f:
                 f.write(str(img) + '\n')  # add image to txt file
+

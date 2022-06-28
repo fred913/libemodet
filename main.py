@@ -12,7 +12,7 @@ from numpy import random
 from emotion import detect_emotion, init
 
 from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
+from utils.datasets import ScreenDataset
 from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, \
     scale_coords, xyxy2xywh, strip_optimizer, set_logging, save_one_box, create_folder
 from utils.plots import plot_one_box
@@ -20,9 +20,7 @@ from utils.torch_utils import select_device, time_synchronized
 
 
 def detect(opt):
-    source, view_img, imgsz, nosave, show_conf, save_path, show_fps = opt.source, not opt.hide_img, opt.img_size, opt.no_save, not opt.hide_conf, opt.output_path, opt.show_fps
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
-        ('rtsp://', 'rtmp://', 'http://', 'https://'))
+    view_img, imgsz, nosave, show_conf, save_path, show_fps = not opt.hide_img, opt.img_size, opt.no_save, not opt.hide_conf, opt.output_path, opt.show_fps
     # Directories
     create_folder(save_path)
 
@@ -41,12 +39,7 @@ def detect(opt):
 
     # Set Dataloader
     vid_path, vid_writer = None, None
-    if webcam:
-        view_img = check_imshow()
-        cudnn.benchmark = True  # set True to speed up constant image size inference
-        dataset = LoadStreams(source, img_size=imgsz, stride=stride)
-    else:
-        dataset = LoadImages(source, img_size=imgsz, stride=stride)
+    dataset = ScreenDataset(img_size=opt.img_size)
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
@@ -73,10 +66,7 @@ def detect(opt):
 
         # Process detections
         for i, det in enumerate(pred):  # detections per image
-            if webcam:  # batch_size >= 1
-                p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
-            else:
-                p, s, im0, frame = path, '', im0s.copy(), getattr(dataset, 'frame', 0)
+            p, s, im0, frame = path[i], '%g: ' % i, im0s[i].copy(), dataset.count
 
             p = Path(p)  # to Path
             s += '%gx%g ' % img.shape[2:]  # print string
@@ -110,7 +100,7 @@ def detect(opt):
 
             # Stream results
             if view_img:
-                display_img = cv2.resize(im0, (im0.shape[1]*2,im0.shape[0]*2))
+                display_img = cv2.resize(im0, (im0.shape[1],im0.shape[0]))
                 cv2.imshow("Emotion Detection",display_img)
                 cv2.waitKey(1)  # 1 millisecond
             if not nosave:
@@ -147,7 +137,6 @@ def detect(opt):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=512, help='inference size (pixels)')
     parser.add_argument('--conf-thres', type=float, default=0.5, help='face confidence threshold')
     parser.add_argument('--iou-thres', type=float, default=0.45, help='IOU threshold for NMS')
