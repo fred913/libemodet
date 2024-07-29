@@ -9,14 +9,14 @@ import pandas as pd
 import requests
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from PIL import Image
 from torch.cuda import amp
-import torch.nn.functional as F
 
-from utils.datasets import letterbox
-from utils.general import non_max_suppression, non_max_suppression_export, make_divisible, scale_coords, increment_path, xyxy2xywh, save_one_box
-from utils.plots import colors, plot_one_box
-from utils.torch_utils import time_synchronized
+from libemodet.utils.datasets import letterbox
+from libemodet.utils.general import increment_path, make_divisible, non_max_suppression, non_max_suppression_export, save_one_box, scale_coords, xyxy2xywh
+from libemodet.utils.plots import colors, plot_one_box
+from libemodet.utils.torch_utils import time_synchronized
 
 
 def autopad(k, p=None):  # kernel, padding
@@ -25,7 +25,9 @@ def autopad(k, p=None):  # kernel, padding
         p = k // 2 if isinstance(k, int) else [x // 2 for x in k]  # auto-pad
     return p
 
+
 class MP(nn.Module):
+
     def __init__(self, k=2):
         super(MP, self).__init__()
         self.m = nn.MaxPool2d(kernel_size=k, stride=k)
@@ -35,6 +37,7 @@ class MP(nn.Module):
 
 
 class SP(nn.Module):
+
     def __init__(self, k=3, s=1):
         super(SP, self).__init__()
         self.m = nn.MaxPool2d(kernel_size=k, stride=s, padding=k // 2)
@@ -42,7 +45,9 @@ class SP(nn.Module):
     def forward(self, x):
         return self.m(x)
 
+
 class SPF(nn.Module):
+
     def __init__(self, k=3, s=1):
         super(SPF, self).__init__()
         self.n = (k - 1) // 2
@@ -53,6 +58,7 @@ class SPF(nn.Module):
 
 
 class ImplicitA(nn.Module):
+
     def __init__(self, channel):
         super(ImplicitA, self).__init__()
         self.channel = channel
@@ -64,6 +70,7 @@ class ImplicitA(nn.Module):
 
 
 class ImplicitM(nn.Module):
+
     def __init__(self, channel):
         super(ImplicitM, self).__init__()
         self.channel = channel
@@ -72,9 +79,10 @@ class ImplicitM(nn.Module):
 
     def forward(self, x):
         return self.implicit.expand_as(x) * x
-    
-    
+
+
 class ReOrg(nn.Module):
+
     def __init__(self):
         super(ReOrg, self).__init__()
 
@@ -103,6 +111,7 @@ class Conv(nn.Module):
 
     def fuseforward(self, x):
         return self.act(self.conv(x))
+
 
 class TransformerLayer(nn.Module):
     # Transformer layer https://arxiv.org/abs/2010.11929 (LayerNorm layers removed for better performance)
@@ -209,7 +218,7 @@ class BottleneckCSP2(nn.Module):
         self.cv1 = Conv(c1, c_, 1, 1)
         self.cv2 = nn.Conv2d(c_, c_, 1, 1, bias=False)
         self.cv3 = Conv(2 * c_, c2, 1, 1)
-        self.bn = nn.BatchNorm2d(2 * c_) 
+        self.bn = nn.BatchNorm2d(2 * c_)
         self.act = nn.SiLU()
         self.m = nn.Sequential(*[Bottleneck(c_, c_, shortcut, g, e=1.0) for _ in range(n)])
 
@@ -254,14 +263,14 @@ class SPP(nn.Module):
         num_3x3_maxpool = []
         max_pool_module_list = []
         for pool_kernel in k:
-            assert (pool_kernel-3)%2==0; "Required Kernel size cannot be implemented with kernel_size of 3"
-            num_3x3_maxpool = 1 + (pool_kernel-3)//2
-            max_pool_module_list.append(nn.Sequential(*num_3x3_maxpool*[nn.MaxPool2d(kernel_size=3, stride=1, padding=1)]))
+            assert (pool_kernel - 3) % 2 == 0
+            "Required Kernel size cannot be implemented with kernel_size of 3"
+            num_3x3_maxpool = 1 + (pool_kernel - 3) // 2
+            max_pool_module_list.append(nn.Sequential(*num_3x3_maxpool * [nn.MaxPool2d(kernel_size=3, stride=1, padding=1)]))
             #max_pool_module_list[-1] = nn.ModuleList(max_pool_module_list[-1])
         self.m = nn.ModuleList(max_pool_module_list)
 
         #self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
-
 
     def forward(self, x):
         x = self.cv1(x)
@@ -280,7 +289,7 @@ class SPPCSP(nn.Module):
         self.m = nn.ModuleList([nn.MaxPool2d(kernel_size=x, stride=1, padding=x // 2) for x in k])
         self.cv5 = Conv(4 * c_, c_, 1, 1)
         self.cv6 = Conv(c_, c_, 3, 1)
-        self.bn = nn.BatchNorm2d(2 * c_) 
+        self.bn = nn.BatchNorm2d(2 * c_)
         self.act = nn.SiLU()
         self.cv7 = Conv(2 * c_, c2, 1, 1)
 
@@ -311,7 +320,9 @@ class SPPCSPC(nn.Module):
         y2 = self.cv2(x)
         return self.cv7(torch.cat((y1, y2), dim=1))
 
+
 class SPPFCSPC(nn.Module):
+
     def __init__(self, c1, c2, n=1, shortcut=False, g=1, e=0.5, k=5):
         super(SPPFCSPC, self).__init__()
         c_ = int(2 * c2 * e)  # hidden channels
@@ -328,9 +339,10 @@ class SPPFCSPC(nn.Module):
         x1 = self.cv4(self.cv3(self.cv1(x)))
         x2 = self.m(x1)
         x3 = self.m(x2)
-        y1 = self.cv6(self.cv5(torch.cat((x1,x2,x3, self.m(x3)),1)))
+        y1 = self.cv6(self.cv5(torch.cat((x1, x2, x3, self.m(x3)), 1)))
         y2 = self.cv2(x)
         return self.cv7(torch.cat((y1, y2), dim=1))
+
 
 class SPPF(nn.Module):
     # Spatial Pyramid Pooling - Fast (SPPF) layer for YOLOv5 by Glenn Jocher
@@ -346,6 +358,7 @@ class SPPF(nn.Module):
         y1 = self.m(x)
         y2 = self.m(y1)
         return self.cv2(torch.cat((x, y1, y2, self.m(y2)), 1))
+
 
 class Focus(nn.Module):
     # Focus wh information into c-space
@@ -363,13 +376,14 @@ class Focus(nn.Module):
             x = torch.cat([x[..., ::2, ::2], x[..., 1::2, ::2], x[..., ::2, 1::2], x[..., 1::2, 1::2]], 1)
         return self.conv(x)
 
+
 class ConvFocus(nn.Module):
     # Focus wh information into c-space
     def __init__(self, c1, c2, k=1, s=1, p=None, g=1, act=True):  # ch_in, ch_out, kernel, stride, padding, groups
         super(ConvFocus, self).__init__()
         slice_kernel = 3
         slice_stride = 2
-        self.conv_slice = Conv(c1, c1*4, slice_kernel, slice_stride, p, g, act)
+        self.conv_slice = Conv(c1, c1 * 4, slice_kernel, slice_stride, p, g, act)
         self.conv = Conv(c1 * 4, c2, k, s, p, g, act)
 
     def forward(self, x):  # x(b,c,w,h) -> y(b,4c,w/2,h/2)
@@ -404,9 +418,9 @@ class Expand(nn.Module):
     def forward(self, x):
         N, C, H, W = x.size()  # assert C / s ** 2 == 0, 'Indivisible gain'
         s = self.gain
-        x = x.view(N, s, s, C // s ** 2, H, W)  # x(1,2,2,16,80,80)
+        x = x.view(N, s, s, C // s**2, H, W)  # x(1,2,2,16,80,80)
         x = x.permute(0, 3, 4, 1, 5, 2).contiguous()  # x(1,16,80,2,80,2)
-        return x.view(N, C // s ** 2, H * s, W * s)  # x(1,16,160,160)
+        return x.view(N, C // s**2, H * s, W * s)  # x(1,16,160,160)
 
 
 class Concat(nn.Module):
@@ -418,25 +432,29 @@ class Concat(nn.Module):
     def forward(self, x):
         return torch.cat(x, self.d)
 
+
 # yolov7-lite
 class StemBlock(nn.Module):
+
     def __init__(self, c1, c2, k=3, s=2, p=None, g=1, act=True):
         super(StemBlock, self).__init__()
         self.stem_1 = Conv(c1, c2, k, s, p, g, act)
         self.stem_2a = Conv(c2, c2 // 2, 1, 1, 0)
         self.stem_2b = Conv(c2 // 2, c2, 3, 2, 1)
-        self.stem_2p = nn.MaxPool2d(kernel_size=2,stride=2,ceil_mode=True)
+        self.stem_2p = nn.MaxPool2d(kernel_size=2, stride=2, ceil_mode=True)
         self.stem_3 = Conv(c2 * 2, c2, 1, 1, 0)
 
     def forward(self, x):
-        stem_1_out  = self.stem_1(x)
+        stem_1_out = self.stem_1(x)
         stem_2a_out = self.stem_2a(stem_1_out)
         stem_2b_out = self.stem_2b(stem_2a_out)
         stem_2p_out = self.stem_2p(stem_1_out)
-        out = self.stem_3(torch.cat((stem_2b_out,stem_2p_out),1))
-        return out 
+        out = self.stem_3(torch.cat((stem_2b_out, stem_2p_out), 1))
+        return out
+
 
 class conv_bn_relu_maxpool(nn.Module):
+
     def __init__(self, c1, c2):  # ch_in, ch_out
         super(conv_bn_relu_maxpool, self).__init__()
         self.conv = nn.Sequential(
@@ -449,8 +467,10 @@ class conv_bn_relu_maxpool(nn.Module):
     def forward(self, x):
         return self.maxpool(self.conv(x))
 
+
 class DWConvblock(nn.Module):
     "Depthwise conv + Pointwise conv"
+
     def __init__(self, in_channels, out_channels, k, s):
         super(DWConvblock, self).__init__()
         self.p = k // 2
@@ -470,6 +490,7 @@ class DWConvblock(nn.Module):
         x = self.act2(x)
         return x
 
+
 class ADD(nn.Module):
     # Stortcut a list of tensors along dimension
     def __init__(self, alpha=0.5):
@@ -479,6 +500,7 @@ class ADD(nn.Module):
     def forward(self, x):
         x1, x2 = x[0], x[1]
         return torch.add(x1, x2, alpha=self.a)
+
 
 def channel_shuffle(x, groups):
     batchsize, num_channels, height, width = x.data.size()
@@ -491,7 +513,9 @@ def channel_shuffle(x, groups):
     x = x.view(batchsize, -1, height, width)
     return x
 
+
 class Shuffle_Block(nn.Module):
+
     def __init__(self, inp, oup, stride):
         super(Shuffle_Block, self).__init__()
 
@@ -512,8 +536,7 @@ class Shuffle_Block(nn.Module):
             )
 
         self.branch2 = nn.Sequential(
-            nn.Conv2d(inp if (self.stride > 1) else branch_features,
-                      branch_features, kernel_size=1, stride=1, padding=0, bias=False),
+            nn.Conv2d(inp if (self.stride > 1) else branch_features, branch_features, kernel_size=1, stride=1, padding=0, bias=False),
             nn.BatchNorm2d(branch_features),
             nn.SiLU(inplace=True),
             self.depthwise_conv(branch_features, branch_features, kernel_size=3, stride=self.stride, padding=1),
@@ -538,7 +561,9 @@ class Shuffle_Block(nn.Module):
 
         return out
 
+
 # end of yolov7-lite
+
 
 class NMS(nn.Module):
     # Non-Maximum Suppression (NMS) module
@@ -547,12 +572,12 @@ class NMS(nn.Module):
 
     def __init__(self, conf=0.25, kpt_label=False):
         super(NMS, self).__init__()
-        self.conf=conf
+        self.conf = conf
         self.kpt_label = kpt_label
-
 
     def forward(self, x):
         return non_max_suppression(x[0], conf_thres=self.conf, iou_thres=self.iou, classes=self.classes, kpt_label=self.kpt_label)
+
 
 class NMS_Export(nn.Module):
     # Non-Maximum Suppression (NMS) module used while exporting ONNX model
@@ -566,7 +591,6 @@ class NMS_Export(nn.Module):
 
     def forward(self, x):
         return non_max_suppression_export(x[0], conf_thres=self.conf, iou_thres=self.iou, classes=self.classes, kpt_label=self.kpt_label)
-
 
 
 class autoShape(nn.Module):

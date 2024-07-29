@@ -16,13 +16,12 @@ import cv2
 import numpy as np
 import torch
 import torch.nn.functional as F
-from PIL import Image, ExifTags
+from PIL import ExifTags, Image
 from torch.utils.data import Dataset
 from tqdm import tqdm
 
-from utils.general import check_requirements, xyxy2xywh, xywh2xyxy, xywhn2xyxy, xyn2xy, segment2box, segments2boxes, \
-    resample_segments, clean_str
-from utils.torch_utils import torch_distributed_zero_first
+from libemodet.utils.general import check_requirements, clean_str, resample_segments, segment2box, segments2boxes, xyn2xy, xywh2xyxy, xywhn2xyxy, xyxy2xywh
+from libemodet.utils.torch_utils import torch_distributed_zero_first
 
 # Parameters
 help_url = 'https://github.com/ultralytics/yolov5/wiki/Train-Custom-Data'
@@ -56,34 +55,48 @@ def exif_size(img):
     return s
 
 
-def create_dataloader(path, imgsz, batch_size, stride, opt, hyp=None, augment=False, cache=False, pad=0.0, rect=False,
-                      rank=-1, world_size=1, workers=8, image_weights=False, quad=False, prefix='', tidl_load=False, kpt_label=False):
+def create_dataloader(path,
+                      imgsz,
+                      batch_size,
+                      stride,
+                      opt,
+                      hyp=None,
+                      augment=False,
+                      cache=False,
+                      pad=0.0,
+                      rect=False,
+                      rank=-1,
+                      world_size=1,
+                      workers=8,
+                      image_weights=False,
+                      quad=False,
+                      prefix='',
+                      tidl_load=False,
+                      kpt_label=False):
     # Make sure only the first process in DDP process the dataset first, and the following others can use the cache
     with torch_distributed_zero_first(rank):
-        dataset = LoadImagesAndLabels(path, imgsz, batch_size,
-                                      augment=augment,  # augment images
-                                      hyp=hyp,  # augmentation hyperparameters
-                                      rect=rect,  # rectangular training
-                                      cache_images=cache,
-                                      single_cls=opt.single_cls,
-                                      stride=int(stride),
-                                      pad=pad,
-                                      image_weights=image_weights,
-                                      prefix=prefix,
-                                      tidl_load=tidl_load,
-                                      kpt_label=kpt_label)
+        dataset = LoadImagesAndLabels(
+            path,
+            imgsz,
+            batch_size,
+            augment=augment,  # augment images
+            hyp=hyp,  # augmentation hyperparameters
+            rect=rect,  # rectangular training
+            cache_images=cache,
+            single_cls=opt.single_cls,
+            stride=int(stride),
+            pad=pad,
+            image_weights=image_weights,
+            prefix=prefix,
+            tidl_load=tidl_load,
+            kpt_label=kpt_label)
 
     batch_size = min(batch_size, len(dataset))
     nw = min([os.cpu_count() // world_size, batch_size if batch_size > 1 else 0, workers])  # number of workers
     sampler = torch.utils.data.distributed.DistributedSampler(dataset) if rank != -1 else None
     loader = torch.utils.data.DataLoader if image_weights else InfiniteDataLoader
     # Use torch.utils.data.DataLoader() if dataset.properties will update during training else InfiniteDataLoader()
-    dataloader = loader(dataset,
-                        batch_size=batch_size,
-                        num_workers=nw,
-                        sampler=sampler,
-                        pin_memory=True,
-                        collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn)
+    dataloader = loader(dataset, batch_size=batch_size, num_workers=nw, sampler=sampler, pin_memory=True, collate_fn=LoadImagesAndLabels.collate_fn4 if quad else LoadImagesAndLabels.collate_fn)
     return dataloader, dataset
 
 
@@ -122,8 +135,9 @@ class _RepeatSampler(object):
 
 
 class LoadImages:  # for inference
+
     def __init__(self, path, img_size=640, stride=32):
-        p = str(Path(path).absolute())  # os-agnostic absolute path
+        p = str(Path(path).absolute())  # os-agnos tic absolute path
         if '*' in p:
             files = sorted(glob.glob(p, recursive=True))  # glob
         elif os.path.isdir(p):
@@ -202,6 +216,7 @@ class LoadImages:  # for inference
 
 
 class LoadWebcam:  # for inference
+
     def __init__(self, pipe='0', img_size=640, stride=32):
         self.img_size = img_size
         self.stride = stride
@@ -260,6 +275,7 @@ class LoadWebcam:  # for inference
 
 
 class LoadStreams:  # multiple IP or RTSP cameras
+
     def __init__(self, sources='streams.txt', img_size=640, stride=32):
         self.mode = 'stream'
         self.img_size = img_size
@@ -347,14 +363,29 @@ def img2label_paths(img_paths):
 
 
 class LoadImagesAndLabels(Dataset):  # for training/testing
-    def __init__(self, path, img_size=640, batch_size=16, augment=False, hyp=None, rect=False, image_weights=False,
-                 cache_images=False, single_cls=False, stride=32, pad=0.0, prefix='',square=False, tidl_load=False, kpt_label=0):
+
+    def __init__(self,
+                 path,
+                 img_size=640,
+                 batch_size=16,
+                 augment=False,
+                 hyp=None,
+                 rect=False,
+                 image_weights=False,
+                 cache_images=False,
+                 single_cls=False,
+                 stride=32,
+                 pad=0.0,
+                 prefix='',
+                 square=False,
+                 tidl_load=False,
+                 kpt_label=0):
         self.img_size = img_size
         self.augment = augment
         self.hyp = hyp
         self.image_weights = image_weights
         self.rect = False if image_weights else rect
-        self.rect=False
+        self.rect = False
         self.tidl_load = tidl_load
         self.mosaic = self.augment and not self.rect  # load 4 images at a time into a mosaic (only during training)
         self.mosaic_border = [-img_size // 2, -img_size // 2]
@@ -379,7 +410,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 else:
                     raise Exception(f'{prefix}{p} does not exist')
             self.img_files = [x.replace('/', os.sep).split(' ')[0] for x in f if x.split(' ')[0].split('.')[-1].lower() in img_formats]
-            sorted_index = [i[0] for i in sorted(enumerate(self.img_files), key=lambda x:x[1])]
+            sorted_index = [i[0] for i in sorted(enumerate(self.img_files), key=lambda x: x[1])]
             self.img_files = [self.img_files[index] for index in sorted_index]
             if self.tidl_load:
                 self.img_sizes = [x.replace('/', os.sep).split(' ')[2].split(',') for x in f if x.split(' ')[0].split('.')[-1].lower() in img_formats]
@@ -493,16 +524,16 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                     if len(l):
                         assert (l >= 0).all(), 'negative labels'
                         if kpt_label:
-                            assert l.shape[1] == kpt_label*3 + 5, 'labels require {} columns each'.format(kpt_label*3+5)
+                            assert l.shape[1] == kpt_label * 3 + 5, 'labels require {} columns each'.format(kpt_label * 3 + 5)
                             assert (l[:, 5::3] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
                             assert (l[:, 6::3] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
                             # print("l shape", l.shape)
-                            kpts = np.zeros((l.shape[0], kpt_label*2+5))
+                            kpts = np.zeros((l.shape[0], kpt_label * 2 + 5))
                             for i in range(len(l)):
-                                kpt = np.delete(l[i,5:], np.arange(2, l.shape[1]-5, 3))  #remove the occlusion paramater from the GT
+                                kpt = np.delete(l[i, 5:], np.arange(2, l.shape[1] - 5, 3))  #remove the occlusion paramater from the GT
                                 kpts[i] = np.hstack((l[i, :5], kpt))
                             l = kpts
-                            assert l.shape[1] == kpt_label*2+5, 'labels require {} columns each after removing occlusion paramater'.format(kpt_label*2+5)
+                            assert l.shape[1] == kpt_label * 2 + 5, 'labels require {} columns each after removing occlusion paramater'.format(kpt_label * 2 + 5)
                         else:
                             assert l.shape[1] == 5, 'labels require 5 columns each'
                             assert (l[:, 1:5] <= 1).all(), 'non-normalized or out of bounds coordinate labels'
@@ -510,11 +541,11 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                         assert np.unique(l, axis=0).shape[0] == l.shape[0], 'duplicate labels'
                     else:
                         ne += 1  # label empty
-                        l = np.zeros((0, kpt_label*2+5), dtype=np.float32) if kpt_label else np.zeros((0, 5), dtype=np.float32)
+                        l = np.zeros((0, kpt_label * 2 + 5), dtype=np.float32) if kpt_label else np.zeros((0, 5), dtype=np.float32)
 
                 else:
                     nm += 1  # label missing
-                    l = np.zeros((0,kpt_label*2+5), dtype=np.float32) if kpt_label else np.zeros((0, 5), dtype=np.float32)
+                    l = np.zeros((0, kpt_label * 2 + 5), dtype=np.float32) if kpt_label else np.zeros((0, 5), dtype=np.float32)
 
                 x[im_file] = [l, shape, segments]
             except Exception as e:
@@ -567,8 +598,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         else:
             # Load image
             img, (h0, w0), (h, w) = load_image(self, index)
-            if self. tidl_load:
-              h0, w0 = self.img_sizes[index][:-1]   #modify the oroginal size for tidll loaded images
+            if self.tidl_load:
+                h0, w0 = self.img_sizes[index][:-1]  #modify the oroginal size for tidll loaded images
             # Letterbox
             shape = self.batch_shapes[self.batch[index]] if self.rect else self.img_size  # final letterboxed shape
             before_shape = img.shape
@@ -583,7 +614,8 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         if self.augment:
             # Augment imagespace
             if not mosaic:
-                img, labels = random_perspective(img, labels,
+                img, labels = random_perspective(img,
+                                                 labels,
                                                  degrees=hyp['degrees'],
                                                  translate=hyp['translate'],
                                                  scale=hyp['scale'],
@@ -605,7 +637,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
             labels[:, [1, 3]] /= img.shape[1]  # normalized width 0-1
             if self.kpt_label:
                 labels[:, 6::2] /= img.shape[0]  # normalized kpt heights 0-1
-                labels[:, 5::2] /= img.shape[1] # normalized kpt width 0-1
+                labels[:, 5::2] /= img.shape[1]  # normalized kpt width 0-1
 
         if self.augment:
             # flip up-down
@@ -614,7 +646,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if nL:
                     labels[:, 2] = 1 - labels[:, 2]
                     if self.kpt_label:
-                        labels[:, 6::2]= (1-labels[:, 6::2])*(labels[:, 6::2]!=0)
+                        labels[:, 6::2] = (1 - labels[:, 6::2]) * (labels[:, 6::2] != 0)
 
             # flip left-right
             if random.random() < hyp['fliplr']:
@@ -622,18 +654,17 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
                 if nL:
                     labels[:, 1] = 1 - labels[:, 1]
                     if self.kpt_label:
-                        labels[:, 5::2] = (1 - labels[:, 5::2])*(labels[:, 5::2]!=0)
+                        labels[:, 5::2] = (1 - labels[:, 5::2]) * (labels[:, 5::2] != 0)
                         labels[:, 5::2] = labels[:, 5::2][:, self.flip_index]
                         labels[:, 6::2] = labels[:, 6::2][:, self.flip_index]
 
         #num_kpts = (labels.shape[1]-5)//2
-        labels_out = torch.zeros((nL, 6+2*self.kpt_label)) if self.kpt_label else torch.zeros((nL, 6))
+        labels_out = torch.zeros((nL, 6 + 2 * self.kpt_label)) if self.kpt_label else torch.zeros((nL, 6))
         if nL:
-            if  self.kpt_label:
+            if self.kpt_label:
                 labels_out[:, 1:] = torch.from_numpy(labels)
             else:
                 labels_out[:, 1:] = torch.from_numpy(labels[:, :5])
-
 
         # Convert
         img = img[:, :, ::-1].transpose(2, 0, 1)  # BGR to RGB, to 3x416x416
@@ -661,8 +692,7 @@ class LoadImagesAndLabels(Dataset):  # for training/testing
         for i in range(n):  # zidane torch.zeros(16,3,720,1280)  # BCHW
             i *= 4
             if random.random() < 0.5:
-                im = F.interpolate(img[i].unsqueeze(0).float(), scale_factor=2., mode='bilinear', align_corners=False)[
-                    0].type(img[i].type())
+                im = F.interpolate(img[i].unsqueeze(0).float(), scale_factor=2., mode='bilinear', align_corners=False)[0].type(img[i].type())
                 l = label[i]
             else:
                 im = torch.cat((torch.cat((img[i], img[i + 1]), 1), torch.cat((img[i + 2], img[i + 3]), 1)), 2)
@@ -766,7 +796,9 @@ def load_mosaic(self, index):
     # img4, labels4 = replicate(img4, labels4)  # replicate
 
     # Augment
-    img4, labels4 = random_perspective(img4, labels4, segments4,
+    img4, labels4 = random_perspective(img4,
+                                       labels4,
+                                       segments4,
                                        degrees=self.hyp['degrees'],
                                        translate=self.hyp['translate'],
                                        scale=self.hyp['scale'],
@@ -841,7 +873,9 @@ def load_mosaic9(self, index):
     # img9, labels9 = replicate(img9, labels9)  # replicate
 
     # Augment
-    img9, labels9 = random_perspective(img9, labels9, segments9,
+    img9, labels9 = random_perspective(img9,
+                                       labels9,
+                                       segments9,
                                        degrees=self.hyp['degrees'],
                                        translate=self.hyp['translate'],
                                        scale=self.hyp['scale'],
@@ -903,8 +937,7 @@ def letterbox(img, new_shape=(640, 640), color=(114, 114, 114), auto=True, scale
     return img, ratio, (dw, dh)
 
 
-def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0,
-                       border=(0, 0), kpt_label=False):
+def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, scale=.1, shear=10, perspective=0.0, border=(0, 0), kpt_label=False):
     # torchvision.transforms.RandomAffine(degrees=(-10, 10), translate=(.1, .1), scale=(.9, 1.1), shear=(-10, 10))
     # targets = [cls, xyxy]
 
@@ -984,17 +1017,17 @@ def random_perspective(img, targets=(), segments=(), degrees=10, translate=.1, s
             new[:, [1, 3]] = new[:, [1, 3]].clip(0, height)
             if kpt_label:
                 xy_kpts = np.ones((n * kpt_label, 3))
-                xy_kpts[:, :2] = targets[:,5:].reshape(n*kpt_label, 2)  #num_kpt is hardcoded to 17
-                xy_kpts = xy_kpts @ M.T # transform
-                xy_kpts = (xy_kpts[:, :2] / xy_kpts[:, 2:3] if perspective else xy_kpts[:, :2]).reshape(n, kpt_label*2)  # perspective rescale or affine
-                xy_kpts[targets[:,5:]==0] = 0
-                x_kpts = xy_kpts[:, list(range(0,kpt_label*2,2))]
-                y_kpts = xy_kpts[:, list(range(1,kpt_label*2,2))]
+                xy_kpts[:, :2] = targets[:, 5:].reshape(n * kpt_label, 2)  #num_kpt is hardcoded to 17
+                xy_kpts = xy_kpts @ M.T  # transform
+                xy_kpts = (xy_kpts[:, :2] / xy_kpts[:, 2:3] if perspective else xy_kpts[:, :2]).reshape(n, kpt_label * 2)  # perspective rescale or affine
+                xy_kpts[targets[:, 5:] == 0] = 0
+                x_kpts = xy_kpts[:, list(range(0, kpt_label * 2, 2))]
+                y_kpts = xy_kpts[:, list(range(1, kpt_label * 2, 2))]
 
                 x_kpts[np.logical_or.reduce((x_kpts < 0, x_kpts > width, y_kpts < 0, y_kpts > height))] = 0
                 y_kpts[np.logical_or.reduce((x_kpts < 0, x_kpts > width, y_kpts < 0, y_kpts > height))] = 0
-                xy_kpts[:, list(range(0, kpt_label*2, 2))] = x_kpts
-                xy_kpts[:, list(range(1, kpt_label*2, 2))] = y_kpts
+                xy_kpts[:, list(range(0, kpt_label * 2, 2))] = x_kpts
+                xy_kpts[:, list(range(1, kpt_label * 2, 2))] = y_kpts
 
         # filter candidates
         i = box_candidates(box1=targets[:, 1:5].T * s, box2=new.T, area_thr=0.01 if use_segments else 0.10)

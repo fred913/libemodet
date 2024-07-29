@@ -12,6 +12,7 @@ import time
 from itertools import repeat
 from multiprocessing.pool import ThreadPool
 from pathlib import Path
+from typing import Iterable
 
 import cv2
 import numpy as np
@@ -20,22 +21,20 @@ import torch
 import torchvision
 import yaml
 
-from utils.google_utils import gsutil_getsize
-from utils.metrics import fitness
-from utils.torch_utils import init_torch_seeds
+from .google_utils import gsutil_getsize
+from .metrics import fitness
+from .torch_utils import init_torch_seeds
 
 # Settings
 torch.set_printoptions(linewidth=320, precision=5, profile='long')
 np.set_printoptions(linewidth=320, formatter={'float_kind': '{:11.5g}'.format})  # format short g, %precision=5
 pd.options.display.max_columns = 10
 cv2.setNumThreads(0)  # prevent OpenCV from multithreading (incompatible with PyTorch DataLoader)
-os.environ['NUMEXPR_MAX_THREADS'] = str(min(os.cpu_count(), 8))  # NumExpr max threads
+os.environ['NUMEXPR_MAX_THREADS'] = str(min(os.cpu_count() or 8, 8))  # NumExpr max threads
 
 
 def set_logging(rank=-1, verbose=True):
-    logging.basicConfig(
-        format="%(message)s",
-        level=logging.INFO if (verbose and rank in [-1, 0]) else logging.WARN)
+    logging.basicConfig(format="%(message)s", level=logging.INFO if (verbose and rank in [-1, 0]) else logging.WARN)
 
 
 def init_seeds(seed=0):
@@ -98,7 +97,7 @@ def check_git_status():
         print(e)
 
 
-def check_requirements(requirements='requirements.txt', exclude=()):
+def check_requirements(requirements: str = 'requirements.txt', exclude: Iterable[str] = ()):
     # Check installed dependencies meet requirements (pass *.txt file or list of packages)
     import pkg_resources as pkg
     prefix = colorstr('red', 'bold', 'requirements:')
@@ -225,25 +224,27 @@ def one_cycle(y1=0.0, y2=1.0, steps=100):
 def colorstr(*input):
     # Colors a string https://en.wikipedia.org/wiki/ANSI_escape_code, i.e.  colorstr('blue', 'hello world')
     *args, string = input if len(input) > 1 else ('blue', 'bold', input[0])  # color arguments, string
-    colors = {'black': '\033[30m',  # basic colors
-              'red': '\033[31m',
-              'green': '\033[32m',
-              'yellow': '\033[33m',
-              'blue': '\033[34m',
-              'magenta': '\033[35m',
-              'cyan': '\033[36m',
-              'white': '\033[37m',
-              'bright_black': '\033[90m',  # bright colors
-              'bright_red': '\033[91m',
-              'bright_green': '\033[92m',
-              'bright_yellow': '\033[93m',
-              'bright_blue': '\033[94m',
-              'bright_magenta': '\033[95m',
-              'bright_cyan': '\033[96m',
-              'bright_white': '\033[97m',
-              'end': '\033[0m',  # misc
-              'bold': '\033[1m',
-              'underline': '\033[4m'}
+    colors = {
+        'black': '\033[30m',  # basic colors
+        'red': '\033[31m',
+        'green': '\033[32m',
+        'yellow': '\033[33m',
+        'blue': '\033[34m',
+        'magenta': '\033[35m',
+        'cyan': '\033[36m',
+        'white': '\033[37m',
+        'bright_black': '\033[90m',  # bright colors
+        'bright_red': '\033[91m',
+        'bright_green': '\033[92m',
+        'bright_yellow': '\033[93m',
+        'bright_blue': '\033[94m',
+        'bright_magenta': '\033[95m',
+        'bright_cyan': '\033[96m',
+        'bright_white': '\033[97m',
+        'end': '\033[0m',  # misc
+        'bold': '\033[1m',
+        'underline': '\033[4m'
+    }
     return ''.join(colors[x] for x in args) + f'{string}' + colors['end']
 
 
@@ -280,9 +281,10 @@ def coco80_to_coco91_class():  # converts 80-index (val2014) to 91-index (paper)
     # b = np.loadtxt('data/coco_paper.names', dtype='str', delimiter='\n')
     # x1 = [list(a[i] == b).index(True) + 1 for i in range(80)]  # darknet to coco
     # x2 = [list(b[i] == a).index(True) if any(b[i] == a) else None for i in range(91)]  # coco to darknet
-    x = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34,
-         35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55, 56, 57, 58, 59, 60, 61, 62, 63,
-         64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90]
+    x = [
+        1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 13, 14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24, 25, 27, 28, 31, 32, 33, 34, 35, 36, 37, 38, 39, 40, 41, 42, 43, 44, 46, 47, 48, 49, 50, 51, 52, 53, 54, 55,
+        56, 57, 58, 59, 60, 61, 62, 63, 64, 65, 67, 70, 72, 73, 74, 75, 76, 77, 78, 79, 80, 81, 82, 84, 85, 86, 87, 88, 89, 90
+    ]
     return x
 
 
@@ -306,17 +308,18 @@ def xywh2xyxy(x):
     return y
 
 
-def xywh2xyxy_export(cx,cy,w,h):
+def xywh2xyxy_export(cx, cy, w, h):
     #This function is used while exporting ONNX models
     # Convert nx4 boxes from [x, y, w, h] to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
     #y = x.clone() if isinstance(x, torch.Tensor) else np.copy(x)
-    halfw = w/2
-    halfh = h/2
+    halfw = w / 2
+    halfh = h / 2
     xmin = cx - halfw  # top left x
     ymin = cy - halfh  # top left y
     xmax = cx + halfw  # bottom right x
     ymax = cy + halfh  # bottom right y
     return torch.cat((xmin, ymin, xmax, ymax), 1)
+
 
 def xywhn2xyxy(x, w=640, h=640, padw=0, padh=0, kpt_label=False):
     # Convert nx4 boxes from [x, y, w, h] normalized to [x1, y1, x2, y2] where xy1=top-left, xy2=bottom-right
@@ -327,13 +330,13 @@ def xywhn2xyxy(x, w=640, h=640, padw=0, padh=0, kpt_label=False):
     y[:, 2] = w * (x[:, 0] + x[:, 2] / 2) + padw  # bottom right x
     y[:, 3] = h * (x[:, 1] + x[:, 3] / 2) + padh  # bottom right y
     if kpt_label:
-        num_kpts = (x.shape[1]-4)//2
+        num_kpts = (x.shape[1] - 4) // 2
         for kpt in range(num_kpts):
             for kpt_instance in range(y.shape[0]):
-                if y[kpt_instance, 2 * kpt + 4]!=0:
-                    y[kpt_instance, 2*kpt+4] = w * y[kpt_instance, 2*kpt+4] + padw
-                if y[kpt_instance, 2 * kpt + 1 + 4] !=0:
-                    y[kpt_instance, 2*kpt+1+4] = h * y[kpt_instance, 2*kpt+1+4] + padh
+                if y[kpt_instance, 2 * kpt + 4] != 0:
+                    y[kpt_instance, 2 * kpt + 4] = w * y[kpt_instance, 2 * kpt + 4] + padw
+                if y[kpt_instance, 2 * kpt + 1 + 4] != 0:
+                    y[kpt_instance, 2 * kpt + 1 + 4] = h * y[kpt_instance, 2 * kpt + 1 + 4] + padh
     return y
 
 
@@ -432,43 +435,43 @@ def bbox_iou(box1, box2, x1y1x2y2=True, GIoU=False, DIoU=False, CIoU=False, EIoU
         cw = torch.max(b1_x2, b2_x2) - torch.min(b1_x1, b2_x1)  # convex (smallest enclosing box) width
         ch = torch.max(b1_y2, b2_y2) - torch.min(b1_y1, b2_y1)  # convex height
         if CIoU or DIoU or EIoU or SIoU:  # Distance or Complete IoU https://arxiv.org/abs/1911.08287v1
-            c2 = cw ** 2 + ch ** 2 + eps  # convex diagonal squared
-            rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2) ** 2 +
-                    (b2_y1 + b2_y2 - b1_y1 - b1_y2) ** 2) / 4  # center distance squared
-            if DIoU: #DIoU
+            c2 = cw**2 + ch**2 + eps  # convex diagonal squared
+            rho2 = ((b2_x1 + b2_x2 - b1_x1 - b1_x2)**2 + (b2_y1 + b2_y2 - b1_y1 - b1_y2)**2) / 4  # center distance squared
+            if DIoU:  #DIoU
                 return iou - rho2 / c2  # DIoU
             elif CIoU:  #CIoU  https://github.com/Zzh-tju/DIoU-SSD-pytorch/blob/master/utils/box/box_utils.py#L47
-                v = (4 / math.pi ** 2) * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
+                v = (4 / math.pi**2) * torch.pow(torch.atan(w2 / h2) - torch.atan(w1 / h1), 2)
                 with torch.no_grad():
                     alpha = v / (v - iou + (1 + eps))
-                return iou - (rho2 / c2 + v * alpha)  # CIoU  
-            elif SIoU:# SIoU
+                return iou - (rho2 / c2 + v * alpha)  # CIoU
+            elif SIoU:  # SIoU
                 s_cw = (b2_x1 + b2_x2 - b1_x1 - b1_x2) * 0.5
                 s_ch = (b2_y1 + b2_y2 - b1_y1 - b1_y2) * 0.5
-                sigma = torch.pow(s_cw ** 2 + s_ch ** 2, 0.5)
+                sigma = torch.pow(s_cw**2 + s_ch**2, 0.5)
                 sin_alpha_1 = torch.abs(s_cw) / sigma
                 sin_alpha_2 = torch.abs(s_ch) / sigma
                 threshold = pow(2, 0.5) / 2
                 sin_alpha = torch.where(sin_alpha_1 > threshold, sin_alpha_2, sin_alpha_1)
                 angle_cost = torch.cos(torch.arcsin(sin_alpha) * 2 - math.pi / 2)
-                rho_x = (s_cw / cw) ** 2
-                rho_y = (s_ch / ch) ** 2
+                rho_x = (s_cw / cw)**2
+                rho_y = (s_ch / ch)**2
                 gamma = angle_cost - 2
                 distance_cost = 2 - torch.exp(gamma * rho_x) - torch.exp(gamma * rho_y)
                 omiga_w = torch.abs(w1 - w2) / torch.max(w1, w2)
                 omiga_h = torch.abs(h1 - h2) / torch.max(h1, h2)
                 shape_cost = torch.pow(1 - torch.exp(-1 * omiga_w), 4) + torch.pow(1 - torch.exp(-1 * omiga_h), 4)
                 return iou - 0.5 * (distance_cost + shape_cost)
-            else:# EIoU
-                w_dis=torch.pow(b1_x2-b1_x1-b2_x2+b2_x1, 2)
-                h_dis=torch.pow(b1_y2-b1_y1-b2_y2+b2_y1, 2)
-                cw2=torch.pow(cw , 2)+eps
-                ch2=torch.pow(ch , 2)+eps
-                return iou-(rho2/c2+w_dis/cw2+h_dis/ch2)
+            else:  # EIoU
+                w_dis = torch.pow(b1_x2 - b1_x1 - b2_x2 + b2_x1, 2)
+                h_dis = torch.pow(b1_y2 - b1_y1 - b2_y2 + b2_y1, 2)
+                cw2 = torch.pow(cw, 2) + eps
+                ch2 = torch.pow(ch, 2) + eps
+                return iou - (rho2 / c2 + w_dis / cw2 + h_dis / ch2)
         else:
             c_area = cw * ch + eps  # convex area
             return iou - (c_area - union) / c_area  # GIoU https://arxiv.org/pdf/1902.09630.pdf
     return iou  # IoU
+
 
 def box_iou(box1, box2):
     # https://github.com/pytorch/vision/blob/master/torchvision/ops/boxes.py
@@ -503,15 +506,14 @@ def wh_iou(wh1, wh2):
     return inter / (wh1.prod(2) + wh2.prod(2) - inter)  # iou = inter / (area1 + area2 - inter)
 
 
-def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False,
-                        labels=(), kpt_label=5, nc=None):
+def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False, labels=(), kpt_label=5, nc=None):
     """Runs Non-Maximum Suppression (NMS) on inference results
 
     Returns:
          list of detections, on (n,6) tensor per image [xyxy, conf, cls]
     """
     if nc is None:
-        nc = prediction.shape[2] - 5  if not kpt_label else prediction.shape[2] - 5 - kpt_label * 3 # number of classes
+        nc = prediction.shape[2] - 5 if not kpt_label else prediction.shape[2] - 5 - kpt_label * 3  # number of classes
     xc = prediction[..., 4] > conf_thres  # candidates
 
     # Settings
@@ -524,7 +526,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     merge = False  # use merge-NMS
 
     t = time.time()
-    output = [torch.zeros((0,6), device=prediction.device)] * prediction.shape[0]
+    output = [torch.zeros((0, 6), device=prediction.device)] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         # Apply constraints
         # x[((x[..., 2:4] < min_wh) | (x[..., 2:4] > max_wh)).any(1), 4] = 0  # width-height
@@ -544,7 +546,7 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
             continue
 
         # Compute conf
-        x[:, 5:5+nc] *= x[:, 4:5]  # conf = obj_conf * cls_conf
+        x[:, 5:5 + nc] *= x[:, 4:5]  # conf = obj_conf * cls_conf
 
         # Box (center x, center y, width, height) to (x1, y1, x2, y2)
         box = xywh2xyxy(x[:, :4])
@@ -561,7 +563,6 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
                 kpts = x[:, 6:]
                 conf, j = x[:, 5:6].max(1, keepdim=True)
                 x = torch.cat((box, conf, j.float(), kpts), 1)[conf.view(-1) > conf_thres]
-
 
         # Filter by class
         if classes is not None:
@@ -600,25 +601,24 @@ def non_max_suppression(prediction, conf_thres=0.25, iou_thres=0.45, classes=Non
     return output
 
 
-def non_max_suppression_export(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False,
-                        kpt_label=5, nc=None, labels=()):
+def non_max_suppression_export(prediction, conf_thres=0.25, iou_thres=0.45, classes=None, agnostic=False, multi_label=False, kpt_label=5, nc=None, labels=()):
     """Runs Non-Maximum Suppression (NMS) on inference results
 
     Returns:
          list of detections, on (n,6) tensor per image [xyxy, conf, cls]
     """
     if nc is None:
-        nc = prediction.shape[2] - 5  if not kpt_label else prediction.shape[2] - 5 - kpt_label * 3 # number of classes
+        nc = prediction.shape[2] - 5 if not kpt_label else prediction.shape[2] - 5 - kpt_label * 3  # number of classes
 
     min_wh, max_wh = 2, 4096  # (pixels) minimum and maximum box width and height
     xc = prediction[..., 4] > conf_thres  # candidates
-    output = [torch.zeros((0, kpt_label*3+6), device=prediction.device)] * prediction.shape[0]
+    output = [torch.zeros((0, kpt_label * 3 + 6), device=prediction.device)] * prediction.shape[0]
     for xi, x in enumerate(prediction):  # image index, image inference
         x = x[xc[xi]]  # confidence
         # Compute conf
-        cx, cy, w, h = x[:,0:1], x[:,1:2], x[:,2:3], x[:,3:4]
+        cx, cy, w, h = x[:, 0:1], x[:, 1:2], x[:, 2:3], x[:, 3:4]
         obj_conf = x[:, 4:5]
-        cls_conf = x[:, 5:5+nc]
+        cls_conf = x[:, 5:5 + nc]
         kpts = x[:, 6:]
         cls_conf = obj_conf * cls_conf  # conf = obj_conf * cls_conf
         # Box (center x, center y, width, height) to (x1, y1, x2, y2)
@@ -626,7 +626,7 @@ def non_max_suppression_export(prediction, conf_thres=0.25, iou_thres=0.45, clas
         conf, j = cls_conf.max(1, keepdim=True)
         x = torch.cat((box, conf, j.float(), kpts), 1)[conf.view(-1) > conf_thres]
         c = x[:, 5:6] * (0 if agnostic else max_wh)  # classes
-        boxes, scores = x[:, :4] +c , x[:, 4]  # boxes (offset by class), scores
+        boxes, scores = x[:, :4] + c, x[:, 4]  # boxes (offset by class), scores
         i = torchvision.ops.nms(boxes, scores, iou_thres)  # NMS
         output[xi] = x[i]
     return output
@@ -743,7 +743,8 @@ def increment_path(path, exist_ok=False, sep='', mkdir=False):
         dir.mkdir(parents=True, exist_ok=True)  # make directory
     return path
 
+
 def create_folder(file):
     directory = os.path.dirname(file)
     if directory:
-        os.makedirs(directory,exist_ok=True)
+        os.makedirs(directory, exist_ok=True)

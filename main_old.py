@@ -1,27 +1,23 @@
-from pathlib import Path
-import numpy as np
 import argparse
-import time
 import os
+import time
+from pathlib import Path
 
-import torch.backends.cudnn as cudnn
-import torch
 import cv2
-
-from emotion import detect_emotion, init
-
-from models.experimental import attempt_load
-from utils.datasets import LoadStreams, LoadImages
-from utils.general import check_img_size, check_requirements, check_imshow, non_max_suppression, \
-    scale_coords, set_logging, create_folder
-from utils.plots import plot_one_box
-from utils.torch_utils import select_device, time_synchronized
+import numpy as np
+import torch
+import torch.backends.cudnn as cudnn
+from .emotion import detect_emotion, init
+from .models.experimental import attempt_load
+from .utils.datasets import LoadImages, LoadStreams
+from .utils.general import check_img_size, check_imshow, check_requirements, create_folder, non_max_suppression, scale_coords, set_logging
+from .utils.plots import plot_one_box
+from .utils.torch_utils import select_device, time_synchronized
 
 
 def detect(opt):
     source, view_img, imgsz, nosave, show_conf, save_path, show_fps = opt.source, not opt.hide_img, opt.img_size, opt.no_save, not opt.hide_conf, opt.output_path, opt.show_fps
-    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(
-        ('rtsp://', 'rtmp://', 'http://', 'https://'))
+    webcam = source.isnumeric() or source.endswith('.txt') or source.lower().startswith(('rtsp://', 'rtmp://', 'http://', 'https://'))
     # Directories
     create_folder(save_path)
 
@@ -49,7 +45,7 @@ def detect(opt):
 
     # Get names and colors
     names = model.module.names if hasattr(model, 'module') else model.names
-    colors = ((0,52,255),(121,3,195),(176,34,118),(87,217,255),(69,199,79),(233,219,155),(203,139,77),(214,246,255))
+    colors = ((0, 52, 255), (121, 3, 195), (176, 34, 118), (87, 217, 255), (69, 199, 79), (233, 219, 155), (203, 139, 77), (214, 246, 255))
 
     # Run inference
     if device.type != 'cpu':
@@ -92,40 +88,39 @@ def detect(opt):
 
                 for *xyxy, conf, cls in reversed(det):
                     #xyxy = [[x, y, w, h] for x, y, w, h in xyxy]
-                   # xyxy = np.array(xyxy)
+                    # xyxy = np.array(xyxy)
                     #xyxy = np.array(xyxy)
-                   # xyxy = xyxy.tolist()
+                    # xyxy = xyxy.tolist()
                     #x1, y1, x2, y2 = zip(*xyxy)
 
                     x1, y1, x2, y2 = xyxy[0], xyxy[1], xyxy[2], xyxy[3]
-                   # x1, y1, x2, y2 = xyxy[:,:4]
+                    # x1, y1, x2, y2 = xyxy[:,:4]
 
-                    images.append(im0.astype(np.uint8)[int(y1):int(y2), int(x1): int(x2)])
-                
+                    images.append(im0.astype(np.uint8)[int(y1):int(y2), int(x1):int(x2)])
+
                 if images:
-                    emotions = detect_emotion(images,show_conf)
+                    emotions = detect_emotion(images, show_conf)
                 # Write results
                 i = 0
                 #for *xyxy, conf, cls in reversed(det):
                 #for *xyxy, conf, cls in det[::-1]:
                 for *xyxy, conf, cls in reversed(det):
-                    if view_img or not nosave:  
-                        # Add bbox to image with emotions on 
+                    if view_img or not nosave:
+                        # Add bbox to image with emotions on
                         label = emotions[i][0]
                         colour = colors[emotions[i][1]]
                         i += 1
                         plot_one_box(xyxy, im0, label=label, color=colour, line_thickness=opt.line_thickness)
 
-
             # Stream results
             if view_img:
-                display_img = cv2.resize(im0, (im0.shape[1]*2,im0.shape[0]*2))
-                cv2.imshow("Emotion Detection",display_img)
+                display_img = cv2.resize(im0, (im0.shape[1] * 2, im0.shape[0] * 2))
+                cv2.imshow("Emotion Detection", display_img)
                 cv2.waitKey(1)  # 1 millisecond
             if not nosave:
                 # check what the output format is
                 ext = save_path.split(".")[-1]
-                if ext in ["mp4","avi"]:
+                if ext in ["mp4", "avi"]:
                     # Save results (image with detections)
                     if vid_path != save_path:  # new video
                         vid_path = save_path
@@ -141,20 +136,20 @@ def detect(opt):
                     vid_writer.write(im0)
                 elif ext in ["bmp", "pbm", "pgm", "ppm", "sr", "ras", "jpeg", "jpg", "jpe", "jp2", "tiff", "tif", "png"]:
                     # save image
-                    cv2.imwrite(save_path,im0)
+                    cv2.imwrite(save_path, im0)
                 else:
                     # save to folder
-                    output_path = os.path.join(save_path,os.path.split(path)[1])
+                    output_path = os.path.join(save_path, os.path.split(path)[1])
                     create_folder(output_path)
-                    cv2.imwrite(output_path,im0)
+                    cv2.imwrite(output_path, im0)
 
         if show_fps:
             # calculate and display fps
-            print(f"FPS: {1/(time.time()-t0):.2f}"+" "*5,end="\r")
+            print(f"FPS: {1/(time.time()-t0):.2f}" + " " * 5, end="\r")
             t0 = time.time()
-        
 
-if __name__ == '__main__':
+
+def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('--source', type=str, default='0', help='source')  # file/folder, 0 for webcam
     parser.add_argument('--img-size', type=int, default=512, help='inference size (pixels)')
@@ -174,3 +169,7 @@ if __name__ == '__main__':
     check_requirements(exclude=('pycocotools', 'thop'))
     with torch.no_grad():
         detect(opt=opt)
+
+
+if __name__ == '__main__':
+    main()
